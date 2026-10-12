@@ -74,7 +74,7 @@
                     <button onclick="setView('simulation')" class="bg-amber-400 hover:bg-yellow-300 text-slate-900 px-3 py-2.5 rounded-xl text-sm md:text-base font-black transition border-2 border-slate-900 shadow-sm text-center">🤖 לסימולטור</button>
                     <button onclick="setView('mass-simulation')" class="bg-fuchsia-400 hover:bg-fuchsia-300 text-slate-900 px-3 py-2.5 rounded-xl text-sm md:text-base font-black transition border-2 border-slate-900 shadow-sm text-center">📊 לניסוי המונים</button>
                     <button onclick="toggleInstructions(true)" class="bg-sky-300 hover:bg-sky-200 text-slate-900 px-3 py-2.5 rounded-xl text-sm md:text-base font-black transition border-2 border-slate-900 shadow-sm text-center">📖 הוראות</button>
-                    <button onclick="clearData()" class="bg-red-400 hover:bg-red-300 text-slate-900 px-3 py-2.5 rounded-xl text-sm md:text-base font-black transition border-2 border-slate-900 shadow-sm text-center">איפוס נתונים</button>
+                    <button onclick="clearData(this)" class="bg-red-400 hover:bg-red-300 text-slate-900 px-3 py-2.5 rounded-xl text-sm md:text-base font-black transition border-2 border-slate-900 shadow-sm text-center">איפוס נתונים</button>
                     <button onclick="setView('selection')" class="bg-slate-300 hover:bg-slate-200 text-slate-900 px-3 py-2.5 rounded-xl text-sm md:text-base font-black transition border-2 border-slate-900 shadow-sm text-center col-span-2 md:col-auto">חזרה ראשי</button>
                 </div>
             </div>
@@ -114,7 +114,7 @@
                 
                 <div id="empty-state" class="text-center text-slate-700 py-12 font-bold text-lg">
                     <span class="text-4xl block mb-4">⏳</span>
-                    מחכים למשתתף הראשון...
+                    <span id="empty-state-text">מחכים למשתתף הראשון...</span>
                 </div>
             </div>
         </div>
@@ -148,7 +148,7 @@
                 <form id="birthday-form" class="space-y-5">
                     <div>
                         <label class="block text-sm font-black text-slate-900 mb-1">שם פרטי (או כינוי)</label>
-                        <input type="text" id="user-name" required class="w-full px-4 py-3 rounded-xl border-2 border-slate-900 bg-amber-100 text-slate-900 font-bold focus:ring-4 focus:ring-emerald-400 focus:outline-none transition shadow-sm" placeholder="למשל: דנה">
+                        <input type="text" id="user-name" required maxlength="30" class="w-full px-4 py-3 rounded-xl border-2 border-slate-900 bg-amber-100 text-slate-900 font-bold focus:ring-4 focus:ring-emerald-400 focus:outline-none transition shadow-sm" placeholder="למשל: דנה">
                     </div>
                     
                     <div class="flex gap-4">
@@ -165,6 +165,8 @@
                             </select>
                         </div>
                     </div>
+
+                    <p id="form-error" class="hidden text-red-700 font-black text-center"></p>
                     
                     <button type="submit" id="submit-btn" class="w-full bg-emerald-400 hover:bg-emerald-300 text-slate-900 font-black py-4 rounded-xl border-2 border-slate-900 shadow-md transition transform hover:-translate-y-1 mt-4 text-lg">
                         שלח למסך הראשי 🚀
@@ -288,14 +290,29 @@
         import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, onSnapshot, query, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
+        // =====================================================================
+        // ⚠️ הדבק כאן את ה-config של פרויקט ה-Firebase שלך
+        // (Firebase Console → Project settings → Your apps → Web app → Config)
+        // =====================================================================
+        const MY_FIREBASE_CONFIG = {
+            apiKey: "PASTE_HERE",
+            authDomain: "PASTE_HERE.firebaseapp.com",
+            projectId: "PASTE_HERE",
+            storageBucket: "PASTE_HERE.appspot.com",
+            messagingSenderId: "PASTE_HERE",
+            appId: "PASTE_HERE"
+        };
+        // =====================================================================
+
         // רשום את פלאגין הלייבלים כדי שיוצג מעל העמודות בגרף
         if (typeof ChartDataLabels !== 'undefined') {
             Chart.register(ChartDataLabels);
         }
 
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'birthday-paradox-demo';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { apiKey: "mock", projectId: "mock" };
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : MY_FIREBASE_CONFIG;
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        const configMissing = !firebaseConfig.apiKey || firebaseConfig.apiKey.includes('PASTE');
 
         let app, auth, db, user, unsubscribe;
         let massSimChart = null; 
@@ -345,7 +362,16 @@
             return funnyNames[Math.floor(Math.random() * funnyNames.length)];
         }
 
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        }
+
         async function initFirebase() {
+            if (configMissing) {
+                document.getElementById('empty-state-text').textContent = '⚠️ חסר Firebase config בקוד – הלוח החי לא יעבוד (הסימולציות עובדות).';
+                console.warn('Firebase config missing – paste it into MY_FIREBASE_CONFIG');
+                return;
+            }
             try {
                 app = initializeApp(firebaseConfig);
                 auth = getAuth(app);
@@ -357,7 +383,10 @@
                 if(!document.getElementById('view-host').classList.contains('hidden')) {
                     startHostListener();
                 }
-            } catch (error) { console.error("Firebase Error:", error); }
+            } catch (error) {
+                console.error("Firebase Error:", error);
+                document.getElementById('empty-state-text').textContent = '⚠️ שגיאת חיבור ל-Firebase: ' + (error.code || error.message);
+            }
         }
 
         // populate dates in dropdowns
@@ -387,7 +416,7 @@
                 document.getElementById(`view-${v}`).classList.add('hidden');
             });
             
-            if (unsubscribe) unsubscribe();
+            if (unsubscribe) { unsubscribe(); unsubscribe = null; }
             document.getElementById(`view-${viewName}`).classList.remove('hidden');
 
             if (viewName === 'host') setupHostView();
@@ -408,6 +437,7 @@
         window.resetParticipantForm = function() {
             document.getElementById('birthday-form').reset();
             document.getElementById('user-name').value = getRandomFunnyName();
+            document.getElementById('form-error').classList.add('hidden');
             document.getElementById('participant-form-container').classList.remove('hidden');
             document.getElementById('participant-success').classList.add('hidden');
         }
@@ -443,13 +473,16 @@
         }
 
         function setupHostView() {
-            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(window.location.href)}`;
+            // ה-QR מוביל ישירות למסך המשתתף
+            const joinUrl = window.location.origin + window.location.pathname + '?join=1';
+            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(joinUrl)}`;
             document.getElementById('qr-code').src = qrUrl;
             if(user) startHostListener();
         }
 
         function startHostListener() {
             if (!user) return;
+            if (unsubscribe) unsubscribe();
             const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'birthdays'));
             unsubscribe = onSnapshot(q, (snapshot) => {
                 const entries = [];
@@ -457,6 +490,7 @@
                 renderHostData(entries);
             }, (error) => {
                 console.error("Firestore Listen Error:", error);
+                document.getElementById('empty-state-text').textContent = '⚠️ אין הרשאת קריאה מ-Firestore (בדוק Rules): ' + error.code;
             });
         }
 
@@ -473,6 +507,7 @@
             grid.innerHTML = '';
             if (numPeople === 0) {
                 emptyState.classList.remove('hidden');
+                document.getElementById('empty-state-text').textContent = 'מחכים למשתתף הראשון...';
                 document.getElementById('match-alert').classList.add('hidden');
                 return;
             } else {
@@ -510,7 +545,7 @@
                     isMatch ? 'bg-yellow-400 transform scale-105 z-10' : 'bg-emerald-200'
                 }`;
                 card.innerHTML = `
-                    <div class="font-black text-lg text-slate-900">${entry.name}</div>
+                    <div class="font-black text-lg text-slate-900">${escapeHtml(entry.name)}</div>
                     <div class="${isMatch ? 'text-slate-900 font-extrabold text-2xl' : 'text-slate-700'} text-xl mt-1">${dateKey}</div>
                 `;
                 grid.appendChild(card);
@@ -619,7 +654,7 @@
             let N = parseInt(document.getElementById('mass-N').value) || 1000;
             
             if (n < 2) n = 2; if (n > 365) n = 365;
-            if (N < 10) N = 10;
+            if (N < 10) N = 10; if (N > 50000) N = 50000;
             document.getElementById('mass-n').value = n;
             document.getElementById('mass-N').value = N;
 
@@ -747,6 +782,7 @@
         }
 
         function triggerConfetti() {
+            if (typeof confetti === 'undefined') return;
             var end = Date.now() + 3000;
             (function frame() {
                 confetti({ particleCount: 5, angle: 60, spread: 55, origin: { x: 0 }, colors: ['#34d399', '#facc15', '#3b82f6'] });
@@ -755,40 +791,53 @@
             }());
         }
 
+        function showFormError(msg) {
+            const el = document.getElementById('form-error');
+            el.textContent = msg;
+            el.classList.remove('hidden');
+        }
+
         document.getElementById('birthday-form').addEventListener('submit', async (e) => {
             e.preventDefault();
-            if(!user) return; 
+            document.getElementById('form-error').classList.add('hidden');
+
+            const day = parseInt(document.getElementById('bday-day').value);
+            const month = parseInt(document.getElementById('bday-month').value);
+            const maxDay = month === 2 ? 29 : daysInMonth[month - 1];
+            if (day > maxDay) { showFormError(`בחודש ${monthsHe[month-1]} אין ${day} ימים 🙂`); return; }
+
+            if(!user) { showFormError('אין חיבור לשרת. נסו לרענן את הדף.'); return; }
+
             const btn = document.getElementById('submit-btn');
             const orig = btn.innerHTML;
             btn.innerHTML = "שולח... ⏳"; btn.disabled = true;
 
             try {
                 await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'birthdays'), {
-                    name: document.getElementById('user-name').value,
-                    day: parseInt(document.getElementById('bday-day').value),
-                    month: parseInt(document.getElementById('bday-month').value),
+                    name: document.getElementById('user-name').value.trim().slice(0, 30),
+                    day,
+                    month,
                     timestamp: new Date().getTime(),
                     userId: user.uid
                 });
                 document.getElementById('participant-form-container').classList.add('hidden');
                 document.getElementById('participant-success').classList.remove('hidden');
+                btn.innerHTML = orig; btn.disabled = false;
             } catch (error) {
+                console.error(error);
                 btn.innerHTML = "שגיאה ❌";
                 setTimeout(() => { btn.innerHTML = orig; btn.disabled = false; }, 2000);
-            } finally {
-                btn.disabled = false;
-                if(!btn.innerHTML.includes("שגיאה")) btn.innerHTML = orig;
             }
         });
 
-        window.clearData = async function() {
+        window.clearData = async function(btn) {
             if(!user) return;
-            const btn = event.target;
-            const orig = btn.innerText;
+            const orig = "איפוס נתונים";
+            const resetBtn = () => { btn.innerText = orig; btn.dataset.confirm = "false"; btn.classList.replace('bg-red-600', 'bg-red-400'); btn.classList.remove('text-slate-50'); };
             if (btn.dataset.confirm !== "true") {
                 btn.innerText = "בטוח? לחץ שוב"; btn.dataset.confirm = "true";
                 btn.classList.replace('bg-red-400', 'bg-red-600'); btn.classList.add('text-slate-50');
-                setTimeout(() => { btn.innerText = orig; btn.dataset.confirm = "false"; btn.classList.replace('bg-red-600', 'bg-red-400'); btn.classList.remove('text-slate-50'); }, 3000);
+                setTimeout(() => { if (btn.dataset.confirm === "true") resetBtn(); }, 3000);
                 return;
             }
             
@@ -798,9 +847,14 @@
                 const proms = [];
                 snapshot.forEach(d => proms.push(deleteDoc(d.ref)));
                 await Promise.all(proms);
-                btn.innerText = "אופס!"; 
-                setTimeout(() => { btn.innerText = orig; btn.dataset.confirm = "false"; btn.classList.replace('bg-red-600', 'bg-red-400'); btn.classList.remove('text-slate-50'); }, 2000);
-            } catch (err) { btn.innerText = "שגיאה"; }
+                btn.innerText = "נמחק ✓"; 
+                setTimeout(resetBtn, 2000);
+            } catch (err) { console.error(err); btn.innerText = "שגיאה"; setTimeout(resetBtn, 2000); }
+        }
+
+        // סריקת QR → פתיחה ישירה של מסך המשתתף
+        if (new URLSearchParams(window.location.search).get('join') === '1') {
+            setView('participant');
         }
 
         initFirebase();
